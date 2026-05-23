@@ -1,0 +1,223 @@
+// UniMarket — Prisma schema
+// Mirrors the tables documented in DATABASE.md.
+// RLS policies & triggers live in supabase/migrations/*.sql.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ── Enums ─────────────────────────────────────────────────────────
+
+enum UserRole {
+  buyer
+  seller
+  both
+  admin
+}
+
+enum Category {
+  electronics
+  furniture
+  books
+  dorm
+  kitchen
+  clothing
+  transport
+  study
+  misc
+}
+
+enum Condition {
+  new
+  like_new
+  good
+  fair
+}
+
+enum ListingStatus {
+  active
+  reserved
+  sold
+  expired
+}
+
+enum ReservationStatus {
+  pending
+  accepted
+  rejected
+  cancelled
+  completed
+}
+
+enum ReportTarget {
+  listing
+  user
+}
+
+enum ReportReason {
+  spam
+  scam
+  inappropriate
+  other
+}
+
+enum ReportStatus {
+  open
+  reviewing
+  resolved
+}
+
+enum TransactionStatus {
+  pending
+  held
+  released
+  refunded
+}
+
+// ── Models ────────────────────────────────────────────────────────
+
+model User {
+  id               String   @id @db.Uuid // mirrors auth.users.id
+  email            String   @unique
+  fullName         String?  @map("full_name")
+  university       String?
+  department       String?
+  avatarUrl        String?  @map("avatar_url")
+  verifiedStudent  Boolean  @default(false) @map("verified_student")
+  role             UserRole @default(both)
+  ratingAvg        Decimal  @default(0) @db.Decimal(3, 2) @map("rating_avg")
+  ratingCount      Int      @default(0) @map("rating_count")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  listings         Listing[]       @relation("seller")
+  reservationsAsBuyer  Reservation[] @relation("buyer")
+  reservationsAsSeller Reservation[] @relation("seller")
+  favorites        Favorite[]
+  sentMessages     Message[]
+  reportsMade      Report[]        @relation("reporter")
+
+  @@map("users")
+}
+
+model UniversityDomain {
+  domain         String @id
+  universityName String @map("university_name")
+  city           String
+
+  @@map("university_domains")
+}
+
+model Listing {
+  id              String        @id @default(uuid()) @db.Uuid
+  sellerId        String        @map("seller_id") @db.Uuid
+  seller          User          @relation("seller", fields: [sellerId], references: [id], onDelete: Cascade)
+  title           String
+  description     String
+  category        Category
+  condition       Condition
+  price           Int           // kuruş, 0 if free
+  isFree          Boolean       @default(false) @map("is_free")
+  images          String[]      @default([])
+  city            String
+  pickupLocation  String?       @map("pickup_location")
+  status          ListingStatus @default(active)
+  viewCount       Int           @default(0) @map("view_count")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  reservations    Reservation[]
+  favorites       Favorite[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([category, status])
+  @@index([city, status])
+  @@map("listings")
+}
+
+model Reservation {
+  id            String            @id @default(uuid()) @db.Uuid
+  listingId     String            @map("listing_id") @db.Uuid
+  listing       Listing           @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyerId       String            @map("buyer_id") @db.Uuid
+  buyer         User              @relation("buyer", fields: [buyerId], references: [id])
+  sellerId      String            @map("seller_id") @db.Uuid
+  seller        User              @relation("seller", fields: [sellerId], references: [id])
+  status        ReservationStatus @default(pending)
+  message       String?
+  createdAt     DateTime          @default(now()) @map("created_at")
+  respondedAt   DateTime?         @map("responded_at")
+
+  chat          Chat?
+
+  @@map("reservations")
+}
+
+model Chat {
+  id             String      @id @default(uuid()) @db.Uuid
+  reservationId  String      @unique @map("reservation_id") @db.Uuid
+  reservation    Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  messages       Message[]
+
+  @@map("chats")
+}
+
+model Message {
+  id        String    @id @default(uuid()) @db.Uuid
+  chatId    String    @map("chat_id") @db.Uuid
+  chat      Chat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  senderId  String    @map("sender_id") @db.Uuid
+  sender    User      @relation(fields: [senderId], references: [id])
+  content   String
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([chatId, createdAt])
+  @@map("messages")
+}
+
+model Favorite {
+  userId    String   @map("user_id") @db.Uuid
+  listingId String   @map("listing_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@id([userId, listingId])
+  @@map("favorites")
+}
+
+model Report {
+  id          String       @id @default(uuid()) @db.Uuid
+  reporterId  String       @map("reporter_id") @db.Uuid
+  reporter    User         @relation("reporter", fields: [reporterId], references: [id])
+  targetType  ReportTarget @map("target_type")
+  targetId    String       @map("target_id") @db.Uuid
+  reason      ReportReason
+  details     String?
+  status      ReportStatus @default(open)
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  @@map("reports")
+}
+
+model Transaction {
+  id         String            @id @default(uuid()) @db.Uuid
+  listingId  String            @map("listing_id") @db.Uuid
+  buyerId    String            @map("buyer_id") @db.Uuid
+  sellerId   String            @map("seller_id") @db.Uuid
+  amount     Int               // kuruş
+  commission Int               // 5% of amount, kuruş
+  status     TransactionStatus @default(pending)
+  createdAt  DateTime          @default(now()) @map("created_at")
+
+  @@map("transactions")
+}

@@ -1,0 +1,11 @@
+node_modules
+.next
+.env*.local
+*.tsbuildinfo
+README.md
+ARCHITECTURE.md
+DATABASE.md
+DEPLOY.md
+DESIGN_SYSTEM.md
+ROADMAP.md
+DEPLOY_NOW.md
